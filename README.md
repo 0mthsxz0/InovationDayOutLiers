@@ -20,3 +20,5 @@ Abra o [Swagger](http://127.0.0.1:8000/docs). Use a matrícula fictícia `202601
 ```
 
 As definições de ferramentas do Gemini estão em `gemini_tools.json`. Os alertas do worker aparecem no console.
+
+A versão organizada do Ibmec Conecta está em [servidor](servidor/README.md) e [plugin](plugin/README.md).

@@ -1,0 +1,24 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "ibmec-conecta",
+  "version": "0.1.2",
+  "description": "Consulta o calendário acadêmico e, com uma conta fictícia autenticada, notas e tarefas por perfil.",
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "Ibmec Conecta",
+        "shortDescription": "Calendário, notas e tarefas",
+        "longDescription": "Consulte o calendário de 2026. Em demonstração, conecte uma conta fictícia para consultar notas e as tarefas ativadas para o perfil.",
+        "category": "Education & Research",
+        "capabilities": [
+          "Interactive"
+        ],
+        "defaultPrompt": [
+          "Quais são as datas da AP2 de 2026.2?",
+          "Qual foi minha nota na AP1 de Cálculo I?",
+          "Quais tarefas foram ativadas para meu perfil?"
+        ]
+      }
+    }
+  }
+}
