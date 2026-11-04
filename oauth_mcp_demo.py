@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from re import fullmatch
 from secrets import compare_digest, token_urlsafe
 from time import time
 from urllib.parse import urlparse
@@ -52,11 +53,19 @@ class OAuthDemo:
                 destino.scheme == "https" and destino.netloc in CALLBACKS_GOOGLE
                 and destino.path.startswith(("/r/", "/a/"))
             )
+            chatgpt = (
+                destino.scheme == "https"
+                and destino.netloc == "chatgpt.com"
+                and (
+                    destino.path == "/connector_platform_oauth_redirect"
+                    or fullmatch(r"/connector/oauth/[A-Za-z0-9_-]+", destino.path) is not None
+                )
+            )
             local = (
                 urlparse(self.origem).hostname in {"127.0.0.1", "localhost"}
                 and destino.scheme == "http" and destino.hostname in {"127.0.0.1", "localhost"}
             )
-            if destino.fragment or not (google or local):
+            if destino.fragment or not (google or chatgpt or local):
                 raise RegistrationError("invalid_redirect_uri", "Use um callback autorizado.")
         if len(self.clientes) >= 2000:
             raise RegistrationError("invalid_client_metadata", "Limite de clientes da demonstração.")
