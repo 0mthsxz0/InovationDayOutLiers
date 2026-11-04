@@ -1,17 +1,23 @@
 from contextlib import asynccontextmanager
 from html import escape
+from json import dumps
 from os import getenv
 from secrets import compare_digest
 from time import time
-from typing import Any, Literal
+from typing import Literal
 from urllib.parse import urlparse
 
 import anyio
-from mcp.server.auth.middleware.auth_context import get_access_token
-from mcp.server.auth.settings import AuthSettings, ClientRegistrationOptions, RevocationOptions
+from mcp.server.auth.middleware.auth_context import AuthContextMiddleware, get_access_token
+from mcp.server.auth.middleware.bearer_auth import BearerAuthBackend
+from mcp.server.auth.provider import ProviderTokenVerifier
+from mcp.server.auth.routes import build_resource_metadata_url, create_auth_routes, create_protected_resource_routes
+from mcp.server.auth.settings import ClientRegistrationOptions, RevocationOptions
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import RequestBodyLimitMiddleware, TransportSecuritySettings
-from mcp.types import ToolAnnotations
+from mcp.types import CallToolResult, TextContent, ToolAnnotations
+from pydantic import AnyHttpUrl
+from starlette.middleware.authentication import AuthenticationMiddleware
 from starlette.responses import HTMLResponse, RedirectResponse
 from starlette.routing import Mount
 
@@ -42,20 +48,13 @@ mcp = FastMCP(
         allowed_hosts=[urlparse(ORIGEM).netloc, "127.0.0.1:*", "localhost:*"],
         allowed_origins=[ORIGEM, "https://gemini.google.com"],
     ),
-    auth_server_provider=oauth,
-    auth=AuthSettings(
-        issuer_url=ORIGEM,
-        resource_server_url=RECURSO,
-        required_scopes=[ESCOPO],
-        validate_token_resource=True,
-        client_registration_options=ClientRegistrationOptions(
-            enabled=True, valid_scopes=[ESCOPO], default_scopes=[ESCOPO],
-        ),
-        revocation_options=RevocationOptions(enabled=True),
-    ),
 )
-LEITURA = ToolAnnotations(readOnlyHint=True, destructiveHint=False)
-mcp.add_tool(consultar_calendario, annotations=LEITURA)
+LEITURA = ToolAnnotations(readOnlyHint=True, destructiveHint=False, openWorldHint=False)
+OAUTH = {"securitySchemes": [{"type": "oauth2", "scopes": [ESCOPO]}]}
+RECURSO_URL = AnyHttpUrl(RECURSO)
+ISSUER_URL = AnyHttpUrl(ORIGEM)
+mcp.add_tool(consultar_calendario, annotations=LEITURA, meta={"securitySchemes": [{"type": "noauth"}]})
+
 
 
 def pagina_login(fluxo, erro="", status=200):
@@ -114,9 +113,29 @@ async def entrar(request):
 
 def identidade_autorizada():
     token = get_access_token()
-    if token is None or token.subject not in PERFIS:
-        raise ValueError("Entre com uma conta de demonstração.")
-    return token.subject
+    if token and token.subject in PERFIS and ESCOPO in token.scopes:
+        return token.subject
+    return None
+
+
+def solicitar_login() -> CallToolResult:
+    metadados = build_resource_metadata_url(RECURSO_URL)
+    desafio = (
+        f'Bearer resource_metadata="{metadados}", scope="{ESCOPO}", '
+        'error="insufficient_scope", error_description="Sign in to Ibmec Conecta to continue"'
+    )
+    return CallToolResult(
+        isError=True,
+        content=[TextContent(type="text", text="Entre com uma conta de demonstração do Ibmec Conecta.")],
+        _meta={"mcp/www_authenticate": [desafio]},
+    )
+
+
+def resultado(dados: dict) -> CallToolResult:
+    return CallToolResult(
+        structuredContent=dados,
+        content=[TextContent(type="text", text=dumps(dados, ensure_ascii=False))],
+    )
 
 
 def notas_do_aluno(matricula, avaliacao):
@@ -135,28 +154,36 @@ def notas_do_aluno(matricula, avaliacao):
             "disciplinas": notas}
 
 
-@mcp.tool(annotations=LEITURA)
-def consultar_minhas_notas(avaliacao: Literal["AP1", "AP2", "AS"] | None = None) -> dict[str, Any]:
+@mcp.tool(annotations=LEITURA, meta=OAUTH)
+def consultar_minhas_notas(avaliacao: Literal["AP1", "AP2", "AS"] | None = None) -> CallToolResult:
     """Consulta as notas fictícias do aluno autenticado. Nenhuma matrícula é informada pelo chat."""
     identidade = identidade_autorizada()
+    if identidade is None:
+        return solicitar_login()
     if PERFIS[identidade] != "aluno":
-        return {"dados_disponiveis": False, "mensagem": DISPONIBILIDADE}
-    return notas_do_aluno(identidade, avaliacao)
+        return resultado({"dados_disponiveis": False, "mensagem": DISPONIBILIDADE})
+    return resultado(notas_do_aluno(identidade, avaliacao))
 
 
-@mcp.tool(annotations=LEITURA)
+@mcp.tool(annotations=LEITURA, meta=OAUTH)
 def consultar_notas_de_suporte(matricula: Literal["202601", "202602"],
-                              avaliacao: Literal["AP1", "AP2", "AS"] | None = None) -> dict[str, Any]:
+                              avaliacao: Literal["AP1", "AP2", "AS"] | None = None) -> CallToolResult:
     """Consulta notas de uma matrícula fictícia, apenas para a equipe de Suporte autenticada."""
-    if PERFIS[identidade_autorizada()] != "suporte":
-        return {"dados_disponiveis": False, "mensagem": DISPONIBILIDADE}
-    return notas_do_aluno(matricula, avaliacao)
+    identidade = identidade_autorizada()
+    if identidade is None:
+        return solicitar_login()
+    if PERFIS[identidade] != "suporte":
+        return resultado({"dados_disponiveis": False, "mensagem": DISPONIBILIDADE})
+    return resultado(notas_do_aluno(matricula, avaliacao))
 
 
-@mcp.tool(annotations=LEITURA)
-def listar_tarefas_programadas() -> dict[str, Any]:
+@mcp.tool(annotations=LEITURA, meta=OAUTH)
+def listar_tarefas_programadas() -> CallToolResult:
     """Lista as regras ativadas no primeiro login e os avisos da conta autenticada."""
-    return tarefas.listar(identidade_autorizada(), hoje_local())
+    identidade = identidade_autorizada()
+    if identidade is None:
+        return solicitar_login()
+    return resultado(tarefas.listar(identidade, hoje_local()))
 
 
 async def verificar_prazos():
@@ -166,7 +193,25 @@ async def verificar_prazos():
 
 
 app = mcp.streamable_http_app()
+app.router.routes.extend(create_auth_routes(
+    provider=oauth,
+    issuer_url=ISSUER_URL,
+    client_registration_options=ClientRegistrationOptions(
+        enabled=True, valid_scopes=[ESCOPO], default_scopes=[ESCOPO],
+    ),
+    revocation_options=RevocationOptions(enabled=True),
+))
+app.router.routes.extend(create_protected_resource_routes(
+    resource_url=RECURSO_URL,
+    authorization_servers=[ISSUER_URL],
+    scopes_supported=[ESCOPO],
+))
 app.router.routes.append(Mount("/", app=calendario_publico))
+app.add_middleware(AuthContextMiddleware)
+app.add_middleware(
+    AuthenticationMiddleware,
+    backend=BearerAuthBackend(ProviderTokenVerifier(oauth), resource_server_url=RECURSO_URL),
+)
 app.add_middleware(RequestBodyLimitMiddleware, max_body_size=32768)
 lifespan_calendario = calendario_publico.router.lifespan_context
 
