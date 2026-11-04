@@ -33,3 +33,5 @@ de tarefas do chat.
 Defina IBMEC_OAUTH_CLIENT_KEY como segredo permanente com pelo menos 32 bytes.
 Ele permite recuperar novos cadastros de clientes OAuth após reiniciar o
 serviço. Preserve o mesmo valor entre deploys.
+
+A rota GET /api/calendario?semestre=2026.2 é pública. Configure IBMEC_CALENDARIO_DB para guardar o SQLite em um volume persistente, quando disponível.

@@ -1,3 +1,8 @@
+from contextlib import closing
+from json import dumps, loads
+from os import getenv
+import sqlite3
+
 from datetime import date
 from typing import Any, Dict, List
 
@@ -66,7 +71,7 @@ TABELA_SIA_CALENDARIO: List[Dict[str, Any]] = [
     ]
 ]
 
-def montar_json_calendario(semestre: str = "2026.1") -> Dict[str, Any]:
+def _calendario_inicial(semestre: str = "2026.1") -> Dict[str, Any]:
     eventos = [e for e in TABELA_SIA_CALENDARIO if e["semestre"] == semestre]
     calendario = {
         "semestre_referencia": semestre,
@@ -78,3 +83,27 @@ def montar_json_calendario(semestre: str = "2026.1") -> Dict[str, Any]:
     if semestre in EVENTOS:
         calendario["eventos_academicos"] = EVENTOS[semestre]
     return calendario
+
+def montar_json_calendario(semestre: str = "2026.1") -> Dict[str, Any]:
+    caminho = getenv("IBMEC_CALENDARIO_DB", "calendario_academico.sqlite3")
+    with closing(sqlite3.connect(caminho, timeout=5)) as banco, banco:
+        banco.execute("""
+            CREATE TABLE IF NOT EXISTS calendario (
+                semestre TEXT PRIMARY KEY,
+                conteudo TEXT NOT NULL
+            )
+        """)
+        linha = banco.execute(
+            "SELECT conteudo FROM calendario WHERE semestre = ?", (semestre,)
+        ).fetchone()
+        if linha is None and semestre in EVENTOS:
+            banco.execute(
+                "INSERT OR IGNORE INTO calendario VALUES (?, ?)",
+                (semestre, dumps(_calendario_inicial(semestre), default=str, ensure_ascii=False)),
+            )
+            linha = banco.execute(
+                "SELECT conteudo FROM calendario WHERE semestre = ?", (semestre,)
+            ).fetchone()
+    if linha is None:
+        return {"semestre_referencia": semestre, "feriados_e_recessos": []}
+    return loads(linha[0])
