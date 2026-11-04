@@ -32,9 +32,10 @@ RECURSO = ORIGEM + "/conta/mcp"
 ESCOPO = "ibmec.demo"
 PAPEIS = {"aluno": "Aluno", "professor": "Professor", "ti": "Equipe de TI", "suporte": "Equipe de Suporte"}
 DISPONIBILIDADE = "Os dados solicitados não estão disponíveis para eu responder à sua pergunta."
+COOKIE_LOGIN = "ibmec_login_fluxo"
 CAMPOS_LOGIN = {
     "Cache-Control": "no-store",
-    "Referrer-Policy": "no-referrer",
+    "Referrer-Policy": "same-origin",
     "Content-Security-Policy": "default-src 'none'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
 }
 oauth = OAuthDemo(ORIGEM, RECURSO)
@@ -89,9 +90,15 @@ async def entrar(request):
                 "Inicie ou refaça a conexão no chat para abrir um novo login.",
                 status_code=400, headers=CAMPOS_LOGIN,
             )
-        return pagina_login(fluxo)
+        resposta = pagina_login(fluxo)
+        resposta.set_cookie(
+            COOKIE_LOGIN, fluxo, max_age=600, path="/entrar",
+            secure=ORIGEM.startswith("https://"), httponly=True, samesite="strict",
+        )
+        return resposta
 
-    if request.headers.get("origin", ORIGEM) != ORIGEM:
+    origem = request.headers.get("origin")
+    if origem not in (None, "null", ORIGEM) or request.headers.get("sec-fetch-site") == "cross-site":
         return HTMLResponse("Origem de login inválida.", status_code=403, headers=CAMPOS_LOGIN)
     async with request.form(max_fields=5, max_files=0, max_part_size=1024) as campos:
         fluxo = campos.get("fluxo", "")
@@ -103,12 +110,24 @@ async def entrar(request):
         pedido = oauth.pedidos.get(fluxo)
         if pedido is None or pedido.expira <= time():
             return HTMLResponse("Login expirado. Reabra o login pelo chat.", status_code=400, headers=CAMPOS_LOGIN)
+        # Alguns navegadores enviam Origin nulo. Vincule o POST à página aberta neste navegador.
+        cookie = request.cookies.get(COOKIE_LOGIN, "")
+        if not compare_digest(cookie.encode(), fluxo.encode()):
+            return HTMLResponse(
+                "Sessão de login inválida. Reabra o login pelo ChatGPT neste navegador.",
+                status_code=403, headers=CAMPOS_LOGIN,
+            )
         if papel not in PAPEIS or PERFIS.get(identidade) != papel or not compare_digest(senha.encode(), b"demo"):
             return pagina_login(fluxo, "Confira a conta, a senha de demonstração e o perfil.", 401)
         # A autorização e a ativação usam a mesma conta validada no formulário.
         tarefas.ativar(identidade, hoje_local())
         destino = oauth.concluir(fluxo, identidade)
-        return RedirectResponse(destino, status_code=303, headers=CAMPOS_LOGIN)
+        resposta = RedirectResponse(destino, status_code=303, headers=CAMPOS_LOGIN)
+        resposta.delete_cookie(
+            COOKIE_LOGIN, path="/entrar", secure=ORIGEM.startswith("https://"),
+            httponly=True, samesite="strict",
+        )
+        return resposta
 
 
 def identidade_autorizada():
