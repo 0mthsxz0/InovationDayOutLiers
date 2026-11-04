@@ -1,24 +1,32 @@
-# Publicar o calendário do Ibmec Conecta
+# Publicar o Ibmec Conecta de demonstração
 
-Este pacote executa somente o conector MCP de calendário. Use uma hospedagem
-autorizada com HTTPS e publique a rota /mcp da aplicação.
+O serviço usa um único processo e contém somente calendário e contas
+fictícias. O Dockerfile inicia o aplicativo na porta 8080. A configuração
+do Render usa essa porta e o health check /healthz.
 
-## Implantação
+## Endereços
 
-1. Na hospedagem, use o Dockerfile deste pacote e encaminhe o tráfego para a
-   porta 8080. Para usar Python diretamente, instale requirements.txt e execute
-   python -m uvicorn mcp_calendario:app --host 0.0.0.0 --port 8080.
-2. Se o proxy repassar o Host público, defina IBMEC_MCP_HOST_PUBLICO com o
-   domínio exato, sem https:// e sem /mcp. Se o proxy reescrever o Host para
-   127.0.0.1:8080, o valor padrão já o aceita.
-3. Valide a URL HTTPS com um cliente MCP usando Streamable HTTP e protocolo
-   2025-11-25. Liste as ferramentas e confirme consultar_calendario. Chame a
-   ferramenta com semestre 2026.2 e confira a AP2 de 12 a 18/11/2026.
-4. Copie a URL HTTPS completa, com /mcp, para CONEXAO.md na pasta plugin.
+- /mcp oferece a consulta de calendário sem login.
+- /conta/mcp oferece calendário, notas fictícias e tarefas da conta após OAuth.
+- /entrar abre o formulário quando recebe um fluxo iniciado pelo cliente MCP.
 
-Para testar no Gemini, abra o Gemini Apps Developer Mode, escolha Create new
-e informe a URL em MCP Server URL. Confira a ferramenta em Tool schemas e
-consulte a AP2 de 2026.2. Este endpoint de calendário dispensa autenticação.
-A disponibilidade do modo de desenvolvedor depende da conta.
+O Render fornece RENDER_EXTERNAL_URL. Em outra hospedagem, configure
+IBMEC_ORIGEM_MCP com a origem HTTPS para gerar os endereços OAuth.
+Para executar localmente, instale requirements.txt e use
+python -m uvicorn mcp_conta:app --host 127.0.0.1 --port 8767.
 
-[Guia oficial do modo de desenvolvedor](https://developers.google.com/connected-apps/mcp/dev-mode/usage)
+## Teste autenticado
+
+Conecte /conta/mcp em um cliente que aceite MCP com OAuth. Pergunte pela AP1,
+siga o login e volte ao chat. Use a matrícula fictícia 202601, perfil Aluno
+e senha demo. O resultado esperado é 8,0 em Cálculo I. A conta fictícia 202602
+tem 9,0. As contas professor-demo, ti-demo e suporte-demo usam a mesma
+senha de teste com seus perfis correspondentes. Peça as tarefas programadas
+para conferir as regras ativadas.
+
+A agenda grava ativações e avisos em SQLite. Defina IBMEC_TAREFAS_DB para
+guardar o arquivo em um volume persistente se houver. O Render gratuito
+pode suspender o processo e limpar o disco local. A verificação roda enquanto
+o serviço está ativo e ao consultar os avisos. As sessões OAuth ficam em
+memória e exigem novo vínculo após reiniciar. Os avisos aparecem na consulta
+de tarefas do chat.
