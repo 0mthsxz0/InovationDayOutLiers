@@ -30,3 +30,7 @@ pode suspender o processo e limpar o disco local. A verificação roda enquanto
 o serviço está ativo e ao consultar os avisos. As sessões OAuth ficam em
 memória e exigem novo vínculo após reiniciar. Os avisos aparecem na consulta
 de tarefas do chat.
+
+Defina IBMEC_OAUTH_CLIENT_KEY como segredo permanente com pelo menos 32 bytes.
+Ele permite recuperar novos cadastros de clientes OAuth após reiniciar o
+serviço. Preserve o mesmo valor entre deploys.

@@ -1,8 +1,13 @@
 from dataclasses import dataclass
+from hmac import digest
+from os import getenv
 from re import fullmatch
 from secrets import compare_digest, token_urlsafe
 from time import time
 from urllib.parse import urlparse
+
+import jwt
+from pydantic import ValidationError
 
 from mcp.server.auth.provider import (
     AccessToken,
@@ -36,6 +41,10 @@ class OAuthDemo:
     def __init__(self, origem: str, recurso: str):
         self.origem = origem
         self.recurso = recurso
+        chave = getenv("IBMEC_OAUTH_CLIENT_KEY")
+        self.chave_clientes = chave.encode() if chave else None
+        if self.chave_clientes is not None and len(self.chave_clientes) < 32:
+            raise ValueError("IBMEC_OAUTH_CLIENT_KEY deve ter pelo menos 32 bytes.")
         self.clientes: dict[str, OAuthClientInformationFull] = {}
         self.pedidos: dict[str, PedidoLogin] = {}
         self.codigos: dict[str, AuthorizationCode] = {}
@@ -44,10 +53,37 @@ class OAuthDemo:
         self.pares: dict[str, str] = {}
 
     async def get_client(self, client_id):
-        return self.clientes.get(client_id)
+        if not self.chave_clientes or not client_id.startswith("ibmec1."):
+            return self.clientes.get(client_id)
+        if len(client_id) > 4096:
+            return None
+        try:
+            cadastro = jwt.decode(
+                client_id.removeprefix("ibmec1."),
+                self.chave_clientes,
+                algorithms=["HS256"],
+                audience=self.recurso,
+                options={"require": ["aud", "exp"]},
+            )["cliente"]
+            cliente = OAuthClientInformationFull.model_validate(cadastro)
+        except (jwt.InvalidTokenError, ValidationError, KeyError):
+            return None
+        cliente.client_id = client_id
+        cliente.client_secret = self.segredo_cliente(cliente)
+        return cliente
+
+    def segredo_cliente(self, cliente):
+        if cliente.token_endpoint_auth_method == "none":
+            return None
+        return digest(self.chave_clientes, f"segredo:{cliente.client_id}".encode(), "sha256").hex()
 
     async def register_client(self, client_info):
-        for uri in client_info.redirect_uris or []:
+        redirecionamentos = client_info.redirect_uris or []
+        if not redirecionamentos or len(redirecionamentos) > 8:
+            raise RegistrationError("invalid_redirect_uri", "Informe de um a oito callbacks autorizados.")
+        if client_info.token_endpoint_auth_method not in {"none", "client_secret_post", "client_secret_basic"}:
+            raise RegistrationError("invalid_client_metadata", "Método de autenticação não suportado.")
+        for uri in redirecionamentos:
             destino = urlparse(str(uri))
             google = (
                 destino.scheme == "https" and destino.netloc in CALLBACKS_GOOGLE
@@ -67,6 +103,24 @@ class OAuthDemo:
             )
             if destino.fragment or not (google or chatgpt or local):
                 raise RegistrationError("invalid_redirect_uri", "Use um callback autorizado.")
+        if self.chave_clientes:
+            # O identificador assinado permite recuperar o cadastro depois de um redeploy.
+            # O segredo do cliente é derivado à parte e nunca entra no identificador.
+            cadastro = client_info.model_dump(
+                mode="json",
+                include={"client_id_issued_at", "redirect_uris", "scope",
+                         "token_endpoint_auth_method", "grant_types", "response_types"},
+            )
+            id_assinado = jwt.encode(
+                {"cliente": cadastro, "aud": self.recurso,
+                 "jti": token_urlsafe(16), "exp": int(time()) + 365 * 86400},
+                self.chave_clientes, algorithm="HS256",
+            )
+            client_info.client_id = "ibmec1." + id_assinado
+            if len(client_info.client_id) > 4096:
+                raise RegistrationError("invalid_client_metadata", "Cadastro excede o tamanho permitido.")
+            client_info.client_secret = self.segredo_cliente(client_info)
+            return
         if len(self.clientes) >= 2000:
             raise RegistrationError("invalid_client_metadata", "Limite de clientes da demonstração.")
         self.clientes[client_info.client_id] = client_info
