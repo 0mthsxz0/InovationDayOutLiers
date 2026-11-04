@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+from hmac import digest
 from html import escape
 from json import dumps
 from os import getenv
@@ -157,12 +158,24 @@ def resultado(dados: dict) -> CallToolResult:
     )
 
 
+def nota_demo(matricula, disciplina, avaliacao, valor):
+    chave = getenv("IBMEC_OAUTH_CLIENT_KEY")
+    if not chave:
+        return valor
+    # A nota publicada é fictícia e estável por conta. O pacote nunca contém seu valor.
+    entrada = f"nota-demo:{matricula}:{disciplina}:{avaliacao}".encode()
+    numero = digest(chave.encode(), entrada, "sha256")[0]
+    inicio, largura = (61, 19) if matricula == "202601" else (81, 9)
+    return (inicio + numero % largura) / 10
+
+
 def notas_do_aluno(matricula, avaliacao):
     dados = ALUNOS[matricula]["notas"]
     notas = []
     for disciplina in dados["disciplinas"]:
         avaliacoes = {
-            nome: valor for nome, valor in disciplina["notas"].items()
+            nome: nota_demo(matricula, disciplina["codigo_disciplina"], nome, valor)
+            for nome, valor in disciplina["notas"].items()
             if valor is not None and (avaliacao is None or nome == avaliacao)
         }
         if avaliacoes:
@@ -175,7 +188,9 @@ def notas_do_aluno(matricula, avaliacao):
 
 @mcp.tool(annotations=LEITURA, meta=OAUTH)
 def consultar_minhas_notas(avaliacao: Literal["AP1", "AP2", "AS"] | None = None) -> CallToolResult:
-    """Consulta as notas fictícias do aluno autenticado. Nenhuma matrícula é informada pelo chat."""
+    """Use para perguntas sobre a própria nota, inclusive AP1. Consulte a conta autenticada.
+    Se a ferramenta pedir autorização, inicie o login antes de informar qualquer nota.
+    """
     identidade = identidade_autorizada()
     if identidade is None:
         return solicitar_login()

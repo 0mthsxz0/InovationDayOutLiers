@@ -19,8 +19,7 @@ python -m uvicorn mcp_conta:app --host 127.0.0.1 --port 8767.
 
 Conecte /conta/mcp em um cliente que aceite MCP com OAuth. Pergunte pela AP1,
 siga o login e volte ao chat. Use a matrícula fictícia 202601, perfil Aluno
-e senha demo. O resultado esperado é 8,0 em Cálculo I. A conta fictícia 202602
-tem 9,0. As contas professor-demo, ti-demo e suporte-demo usam a mesma
+e senha demo. Confirme a chamada autenticada à ferramenta de notas. As contas professor-demo, ti-demo e suporte-demo usam a mesma
 senha de teste com seus perfis correspondentes. Peça as tarefas programadas
 para conferir as regras ativadas.
 
