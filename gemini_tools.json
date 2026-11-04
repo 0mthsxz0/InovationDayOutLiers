@@ -1,0 +1,79 @@
+[
+  {
+    "name": "obter_dados_aluno",
+    "description": "Retorna o perfil do aluno no SIA e preferências de alerta.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "matricula": {"type": "string", "description": "Matrícula do aluno (ex: '202601')."}
+      },
+      "required": ["matricula"]
+    }
+  },
+  {
+    "name": "obter_dados_financeiro",
+    "description": "Retorna mensalidades, status, código de barras e link PIX gerados do SIA.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "matricula": {"type": "string", "description": "Matrícula do aluno."}
+      },
+      "required": ["matricula"]
+    }
+  },
+  {
+    "name": "obter_dados_academico",
+    "description": "Retorna notas e frequência de todas as disciplinas do semestre.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "matricula": {"type": "string", "description": "Matrícula do aluno."}
+      },
+      "required": ["matricula"]
+    }
+  },
+  {
+    "name": "obter_grade_aluno",
+    "description": "Retorna a grade horária e dias da semana das aulas.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "matricula": {"type": "string", "description": "Matrícula do aluno."}
+      },
+      "required": ["matricula"]
+    }
+  },
+  {
+    "name": "obter_calendario",
+    "description": "Consulta o calendário do semestre, com feriados cadastrados e eventos acadêmicos disponíveis.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "semestre": {"type": "string", "enum": ["2026.1", "2026.2"]}
+      }
+    }
+  },
+  {
+    "name": "atualizar_preferencias_aluno",
+    "description": "Atualiza a régua de alerta de faltas do estudante no banco SIA.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "matricula": {"type": "string", "description": "Matrícula do aluno."},
+        "limite_alerta_frequencia_percentual": {"type": "number", "description": "Percentual de corte para disparar avisos."},
+        "aviso_antecedencia_aulas_faltantes": {"type": "integer", "description": "Número de faltas restantes como gatilho."}
+      },
+      "required": ["matricula", "limite_alerta_frequencia_percentual"]
+    }
+  },
+  {
+    "name": "obter_plano_operacional",
+    "description": "Consulta eventos, ações propostas de TI, responsáveis e sobreposições no calendário do semestre solicitado via GET /api/ti/plano-operacional.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "semestre": {"type": "string", "enum": ["2026.1", "2026.2"]}
+      }
+    }
+  }
+]
